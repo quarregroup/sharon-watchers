@@ -1,0 +1,42 @@
+name: proxy-auth-sentry
+
+on:
+  schedule:
+    # Every 5 min. GA may queue 1-3 min later under load — acceptable for this check.
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: proxy-auth-sentry
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Write BQ service account
+        env:
+          BQ_SA_JSON: ${{ secrets.BQ_SA_JSON }}
+        run: |
+          mkdir -p $RUNNER_TEMP/bq
+          echo "$BQ_SA_JSON" > $RUNNER_TEMP/bq/sa.json
+
+      - name: Run proxy auth sentry
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq/sa.json
+          VAPI_SHARED_SECRET: ${{ secrets.VAPI_SHARED_SECRET }}
+          SHARON_CRITICAL_ALERT_WEBHOOK: ${{ secrets.SHARON_CRITICAL_ALERT_WEBHOOK }}
+          PRIORITY_BRIEF_WEBHOOK_URL: ${{ secrets.PRIORITY_BRIEF_WEBHOOK_URL }}
+          STATE_DIR: ${{ runner.temp }}
+        run: |
+          python scripts/proxy_auth_sentry.py --min 30

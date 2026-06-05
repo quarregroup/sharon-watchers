@@ -1,0 +1,45 @@
+name: sharon-critical-bug-monitor
+
+on:
+  schedule:
+    # Every 5 min. Scans last 10 min of VAPI calls so overlap is safe (state file dedups).
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sharon-critical-bug-monitor
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      # State file dedups alerted call_ids. Persist across runs via cache so the same
+      # bug doesn't re-fire every 5 min. Cache miss = first run after deploy = expected.
+      - name: Restore state file
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/sharon_critical_bug_monitor_state.json
+          key: sharon-critical-bug-state-v1
+          restore-keys: |
+            sharon-critical-bug-state-
+
+      - name: Run critical bug monitor
+        env:
+          VAPI_API_KEY: ${{ secrets.VAPI_API_KEY }}
+          VAPI_ASSISTANT_ID: ${{ secrets.VAPI_ASSISTANT_ID }}
+          SHARON_CRITICAL_ALERT_WEBHOOK: ${{ secrets.SHARON_CRITICAL_ALERT_WEBHOOK }}
+          PRIORITY_BRIEF_WEBHOOK_URL: ${{ secrets.PRIORITY_BRIEF_WEBHOOK_URL }}
+          STATE_DIR: ${{ runner.temp }}
+        run: |
+          python scripts/sharon_critical_bug_monitor.py --min 10
