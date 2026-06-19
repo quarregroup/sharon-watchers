@@ -1,0 +1,41 @@
+name: cache-refresh
+
+# Locked 2026-06-08 (HARD RULE feedback_cache_auto_renewal_HARD_RULE_2026_06_08.md):
+# Every cache with a TTL MUST be auto-renewed by an always-listening watcher.
+# Default Gemini explicit cache TTL is 24h. Cadence here is 4h = 6x safety margin.
+
+on:
+  schedule:
+    - cron: "17 */4 * * *"   # every 4h, jittered minute :17
+  workflow_dispatch: {}
+
+concurrency:
+  group: cache-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run cache refresh watcher
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SHARON_CRITICAL_ALERT_WEBHOOK: ${{ secrets.SHARON_CRITICAL_ALERT_WEBHOOK }}
+          PRIORITY_BRIEF_WEBHOOK_URL: ${{ secrets.PRIORITY_BRIEF_WEBHOOK_URL }}
+          # SHARON_PROMPT_ROOT must point to a directory containing langsmith_suite/cached_prompts.py
+          # plus all the .md evaluator/judge/reflection files referenced in DEFAULT_CACHE_TARGETS.
+          # In the GA runner, this means the source prompts must be bundled in this repo (under ./prompts/)
+          # OR fetched at runtime from a private mirror. Pending Milan's repo-visibility decision —
+          # see feedback_cache_auto_renewal_HARD_RULE_2026_06_08.md for context.
+          SHARON_PROMPT_ROOT: ${{ github.workspace }}/prompts
+        run: python scripts/cache_refresh_watcher.py

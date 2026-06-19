@@ -1,0 +1,37 @@
+name: mirror-freshness
+
+# Locked 2026-06-18 (Milan: "and github actions" + cadence change).
+# Watches the postgres_to_r2 mirror that hydrates DuckDB source views.
+# If pg_to_r2 lags > 30 min, Sharon's deal_data goes stale -> she calls/SMSes
+# on yesterday's facts. We page the Pipedrive Bot deal so Milan sees it.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 min
+  workflow_dispatch: {}
+
+concurrency:
+  group: mirror-freshness
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install requests boto3==1.34.34
+
+      - name: Probe scheduler freshness (external dead-man)
+        env:
+          SCHEDULER_BEARER: ${{ secrets.SCHEDULER_BEARER }}
+          PIPEDRIVE_PRODUCTION_API_KEY: ${{ secrets.PIPEDRIVE_PRODUCTION_API_KEY }}
+          PIPEDRIVE_BOT_USER_ID: ${{ secrets.PIPEDRIVE_BOT_USER_ID }}
+          ALERT_DEAL_ID: ${{ secrets.MIRROR_ALERT_DEAL_ID }}
+        run: python scripts/mirror_freshness_watcher.py
