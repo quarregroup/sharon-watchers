@@ -1,0 +1,44 @@
+name: cron-health
+
+# Locked 2026-06-22 (Milan: "live workflow shouldn't fail. just like our
+# caching protocols these are things that shouldnt fail").
+#
+# Watcher fires every 15 min. Hits quarre-scheduler/'s `/` endpoint, checks
+# every tier-1 job's last_success / last_failure. If the most recent event
+# is a failure AND it's older than 30 min (i.e., the next scheduled tick
+# should already have happened) → Slack alert.
+#
+# This is a fallback. scheduler.ts itself sends an immediate Slack alert on
+# every tier-1 non-zero exit. This watcher covers the case where the
+# scheduler PROCESS dies entirely, or Slack was unreachable on the inline
+# alert.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 min, no jitter
+  workflow_dispatch: {}
+
+concurrency:
+  group: cron-health
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # stdlib-only — no requirements install needed for this watcher.
+
+      - name: Check tier-1 scheduler cron health
+        env:
+          SCHEDULER_BASE_URL: https://quarre-scheduler.fly.dev
+          SCHEDULER_BEARER: ${{ secrets.SCHEDULER_BEARER }}
+          SHARON_CRITICAL_ALERT_WEBHOOK: ${{ secrets.SHARON_CRITICAL_ALERT_WEBHOOK }}
+          PRIORITY_BRIEF_WEBHOOK_URL: ${{ secrets.PRIORITY_BRIEF_WEBHOOK_URL }}
+        run: python scripts/cron_health_watcher.py
