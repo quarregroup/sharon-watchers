@@ -33,12 +33,13 @@ PIPEDRIVE_BASE = "https://api.pipedrive.com/v1"
 #    Outside that window the job is correctly idle, no alert.
 #  - business_hours_only=False → always checked (e.g. the watcher itself).
 WATCHED_JOBS = {
-    # bq_to_r2_mirror_pipedrive removed 2026-06-19 — cron set to '0 0 1 1 0'
-    # (effectively never runs). Pipedrive freshness is now covered by
-    # postgres_to_r2_mirror (live Postgres sink) + ingest_pipedrive +
-    # the per-tick add_initial_qualification chain.
-    "bq_to_r2_mirror_call_sms": (90, True),   # cron :08/:38 12-22 UTC M-F
-    "postgres_to_r2_mirror":    (90, True),   # cron :10/:40 12-22 UTC M-F
+    # bq_to_r2_mirror_pipedrive removed 2026-06-19 — cron set to '0 0 1 1 0'.
+    # bq_to_r2_mirror_call_sms removed 2026-09-07 — DISABLED 2026-06-27, cron
+    # set to '0 0 1 1 0' (never fires). All call/SMS ingest scripts are now
+    # R2-direct; BQ source tables no longer exist. Same pattern as the
+    # bq_to_r2_mirror_pipedrive removal. Watcher was paging every 15min on a
+    # job nobody runs (last_success = None always during business hours).
+    "postgres_to_r2_mirror":    (90, True),   # cron :10/:40 24/7
     "mirror_freshness_monitor": (30, False),  # itself runs */5 always; 30m = dead-man
 }
 
