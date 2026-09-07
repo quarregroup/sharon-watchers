@@ -40,16 +40,25 @@ SLACK = os.environ.get("SHARON_CRITICAL_ALERT_WEBHOOK") or os.environ.get(
     "PRIORITY_BRIEF_WEBHOOK_URL"
 )
 
-TIER_1_JOBS = {
-    "crm_update",
-    "dbt_refresh_queue_duckdb",
-    "ingest_call_sms",
-    "ingest_pipedrive",
-    "crm_phase1_writes",
-    "add_initial_qualification",
+# Per-job stale threshold: how long after a failure (with no subsequent
+# success) before this watcher pages. Threshold must be ≥ the job's retry
+# cadence — otherwise a single failure causes hours of false-alarm spam.
+#
+#  crm_update:               */5 12-22 UTC M-F  →  30 min
+#  dbt_refresh_queue_duckdb: every 20-30 min    →  30 min
+#  ingest_call_sms:          :15,:45 (2x/hr)    →  60 min
+#  ingest_pipedrive:         :18,:38,:58 12-22  →  60 min
+#  crm_phase1_writes:        :40 every hr       →  90 min
+#  add_initial_qualification: 11:20 UTC M-F     →  26h (once-daily; one
+#    failure must not page all weekend)
+TIER_1_JOBS: dict[str, timedelta] = {
+    "crm_update":               timedelta(minutes=30),
+    "dbt_refresh_queue_duckdb": timedelta(minutes=30),
+    "ingest_call_sms":          timedelta(minutes=60),
+    "ingest_pipedrive":         timedelta(minutes=60),
+    "crm_phase1_writes":        timedelta(minutes=90),
+    "add_initial_qualification": timedelta(hours=26),
 }
-
-STALE_THRESHOLD = timedelta(minutes=30)
 
 
 def slack_alert(text: str):
@@ -95,7 +104,7 @@ def main():
     print(f"[{now.isoformat(timespec='seconds')}] cron_health_watcher fire")
 
     stale = []
-    for job in TIER_1_JOBS:
+    for job, threshold in TIER_1_JOBS.items():
         succ = last_success.get(job)
         fail = last_failure.get(job)
         succ_dt = (
@@ -106,11 +115,11 @@ def main():
         )
 
         # Stale if: most recent event is a failure AND it's older than the
-        # threshold (i.e. the next scheduled tick should have already happened).
+        # per-job threshold (i.e. enough retry ticks have passed without recovery).
         most_recent_failed = fail_dt and (not succ_dt or fail_dt > succ_dt)
         if most_recent_failed:
             age = now - fail_dt
-            if age > STALE_THRESHOLD:
+            if age > threshold:
                 stale.append((job, fail_dt.isoformat(timespec="seconds"), age))
             print(
                 f"  ⚠️  {job}: last_failure={fail} succ={succ} age={age}"
